@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: innovatech-frontend:latest
+    container_name: innovatech_frontend
+    ports:
+      - "80:80"
+    environment:
+      - BACKEND_HOST=${BACKEND_HOST}
+    restart: unless-stopped
+    networks:
+      - frontend_net
+
+networks:
+  frontend_net:
+    driver: bridge
