@@ -160,13 +160,23 @@ Resources:
           SourceSecurityGroupId: !Ref AlbSecurityGroup
       Tags: [{ Key: Name, Value: innova-svc-sg }]
 
-  # Permite todo el trafico interno entre tareas del mismo SG (backends -> mysql 3306)
+  # Permite todo el trafico interno entre tareas del mismo SG
   ServiceSGSelfIngress:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId: !Ref ServiceSecurityGroup
       IpProtocol: -1
       SourceSecurityGroupId: !Ref ServiceSecurityGroup
+
+  # MySQL 3306 alcanzable desde toda la VPC (cubre el NLB y las tareas backend)
+  ServiceSGMySQLIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ServiceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      CidrIp: !Ref VpcCidr
 
   # ===================== LOAD BALANCER =====================
   LoadBalancer:
@@ -266,24 +276,38 @@ Resources:
         - Name: containerInsights
           Value: enabled
 
-  DnsNamespace:
-    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+  # NLB interno para dar a MySQL una direccion estable (Cloud Map esta
+  # bloqueado en Learner Lab). Los backends se conectan a su DNS en el 3306.
+  MySQLNlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: innova.local
-      Vpc: !Ref Vpc
+      Name: innova-mysql-nlb
+      Type: network
+      Scheme: internal
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+      LoadBalancerAttributes:
+        - Key: load_balancing.cross_zone.enabled
+          Value: 'true'
 
-  MySQLDiscovery:
-    Type: AWS::ServiceDiscovery::Service
+  TargetGroupMySQL:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: mysql
-      NamespaceId: !Ref DnsNamespace
-      DnsConfig:
-        DnsRecords:
-          - Type: A
-            TTL: 10
-        RoutingPolicy: WEIGHTED
-      HealthCheckCustomConfig:
-        FailureThreshold: 1
+      Name: innova-tg-mysql
+      VpcId: !Ref Vpc
+      Port: 3306
+      Protocol: TCP
+      TargetType: ip
+      HealthCheckProtocol: TCP
+
+  ListenerMySQL:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref MySQLNlb
+      Port: 3306
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupMySQL
 
   # ===================== LOG GROUPS =====================
   LogGroupFront:
@@ -351,7 +375,7 @@ Resources:
           PortMappings:
             - ContainerPort: 8080
           Environment:
-            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://mysql.innova.local:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
+            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://${MySQLNlb.DNSName}:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
             - { Name: SPRING_DATASOURCE_USERNAME, Value: !Ref DBUser }
             - { Name: SPRING_DATASOURCE_PASSWORD, Value: !Ref DBPassword }
             - { Name: SPRING_JPA_HIBERNATE_DDL_AUTO, Value: update }
@@ -379,7 +403,7 @@ Resources:
           PortMappings:
             - ContainerPort: 8080
           Environment:
-            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://mysql.innova.local:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
+            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://${MySQLNlb.DNSName}:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
             - { Name: SPRING_DATASOURCE_USERNAME, Value: !Ref DBUser }
             - { Name: SPRING_DATASOURCE_PASSWORD, Value: !Ref DBPassword }
             - { Name: SPRING_JPA_HIBERNATE_DDL_AUTO, Value: update }
@@ -416,19 +440,23 @@ Resources:
   # ===================== SERVICES =====================
   ServiceMySQL:
     Type: AWS::ECS::Service
+    DependsOn: ListenerMySQL
     Properties:
       ServiceName: innova-mysql
       Cluster: !Ref Cluster
       LaunchType: FARGATE
       DesiredCount: 1
       TaskDefinition: !Ref TaskDefMySQL
+      HealthCheckGracePeriodSeconds: 60
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
           SecurityGroups: [!Ref ServiceSecurityGroup]
-      ServiceRegistries:
-        - RegistryArn: !GetAtt MySQLDiscovery.Arn
+      LoadBalancers:
+        - ContainerName: mysql
+          ContainerPort: 3306
+          TargetGroupArn: !Ref TargetGroupMySQL
 
   ServiceVentas:
     Type: AWS::ECS::Service
@@ -499,7 +527,6 @@ Resources:
       ScalableDimension: ecs:service:DesiredCount
       MinCapacity: 1
       MaxCapacity: 4
-      RoleARN: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
 
   ScalingPolicyVentas:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
@@ -522,7 +549,6 @@ Resources:
       ScalableDimension: ecs:service:DesiredCount
       MinCapacity: 1
       MaxCapacity: 4
-      RoleARN: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
 
   ScalingPolicyDespachos:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
