@@ -1,0 +1,554 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EP3 Innovatech - Orquestacion en AWS ECS Fargate.
+  Despliega Front + 2 Backends + MySQL detras de un Application Load Balancer
+  con routing por path, autoscaling (Target Tracking) y logs en CloudWatch.
+  Compatible con AWS Academy Learner Lab (usa LabRole, no crea roles IAM).
+
+# ---------------------------------------------------------------------------
+# PARAMETERS
+# ---------------------------------------------------------------------------
+Parameters:
+  LabRoleArn:
+    Type: String
+    Default: ''
+    Description: >
+      ARN del rol de ejecucion/tarea. En Learner Lab dejar vacio para usar
+      automaticamente arn:aws:iam::<cuenta>:role/LabRole.
+
+  ImageFront:
+    Type: String
+    Description: URI completa de la imagen del frontend en ECR (con tag).
+
+  ImageVentas:
+    Type: String
+    Description: URI completa de la imagen back-ventas en ECR (con tag).
+
+  ImageDespachos:
+    Type: String
+    Description: URI completa de la imagen back-despachos en ECR (con tag).
+
+  MySQLImage:
+    Type: String
+    Default: mysql:8.0
+    Description: Imagen publica de MySQL.
+
+  DBName:
+    Type: String
+    Default: despachos_db
+
+  DBUser:
+    Type: String
+    Default: root
+
+  DBPassword:
+    Type: String
+    Default: '1234'
+    NoEcho: true
+    Description: Password de root de MySQL (demo).
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Numero inicial de tareas por servicio de aplicacion.
+
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+
+# ---------------------------------------------------------------------------
+# CONDITIONS
+# ---------------------------------------------------------------------------
+Conditions:
+  UseDefaultLabRole: !Equals [!Ref LabRoleArn, '']
+
+# ---------------------------------------------------------------------------
+# RESOURCES
+# ---------------------------------------------------------------------------
+Resources:
+
+  # ===================== NETWORKING =====================
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: innova-vpc }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: innova-igw }]
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: innova-public-a }]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: innova-public-b }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: innova-public-rt }]
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ===================== SECURITY GROUPS =====================
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB publico - permite HTTP entrante
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags: [{ Key: Name, Value: innova-alb-sg }]
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Tareas ECS - trafico desde el ALB y entre servicios
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags: [{ Key: Name, Value: innova-svc-sg }]
+
+  # Permite todo el trafico interno entre tareas del mismo SG (backends -> mysql 3306)
+  ServiceSGSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ServiceSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref ServiceSecurityGroup
+
+  # ===================== LOAD BALANCER =====================
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: innova-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+
+  TargetGroupFront:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: innova-tg-front
+      VpcId: !Ref Vpc
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher: { HttpCode: 200-399 }
+
+  TargetGroupVentas:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: innova-tg-ventas
+      VpcId: !Ref Vpc
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /api-ventas/v3/api-docs
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher: { HttpCode: 200-399 }
+
+  TargetGroupDespachos:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: innova-tg-despachos
+      VpcId: !Ref Vpc
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /api-despachos/v3/api-docs
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher: { HttpCode: 200-399 }
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupFront
+
+  ListenerRuleVentas:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api-ventas/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupVentas
+
+  ListenerRuleDespachos:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api-despachos/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupDespachos
+
+  # ===================== ECS CLUSTER + SERVICE DISCOVERY =====================
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: innova-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  DnsNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: innova.local
+      Vpc: !Ref Vpc
+
+  MySQLDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: mysql
+      NamespaceId: !Ref DnsNamespace
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: WEIGHTED
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ===================== LOG GROUPS =====================
+  LogGroupFront:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/innova/front
+      RetentionInDays: 7
+  LogGroupVentas:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/innova/ventas
+      RetentionInDays: 7
+  LogGroupDespachos:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/innova/despachos
+      RetentionInDays: 7
+  LogGroupMySQL:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/innova/mysql
+      RetentionInDays: 7
+
+  # ===================== TASK DEFINITIONS =====================
+  TaskDefMySQL:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: innova-mysql
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      TaskRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      ContainerDefinitions:
+        - Name: mysql
+          Image: !Ref MySQLImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3306
+          Environment:
+            - { Name: MYSQL_ROOT_PASSWORD, Value: !Ref DBPassword }
+            - { Name: MYSQL_DATABASE, Value: !Ref DBName }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupMySQL
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: mysql
+
+  TaskDefVentas:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: innova-ventas
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      TaskRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      ContainerDefinitions:
+        - Name: ventas
+          Image: !Ref ImageVentas
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+          Environment:
+            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://mysql.innova.local:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
+            - { Name: SPRING_DATASOURCE_USERNAME, Value: !Ref DBUser }
+            - { Name: SPRING_DATASOURCE_PASSWORD, Value: !Ref DBPassword }
+            - { Name: SPRING_JPA_HIBERNATE_DDL_AUTO, Value: update }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupVentas
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ventas
+
+  TaskDefDespachos:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: innova-despachos
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      TaskRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      ContainerDefinitions:
+        - Name: despachos
+          Image: !Ref ImageDespachos
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+          Environment:
+            - { Name: SPRING_DATASOURCE_URL, Value: !Sub 'jdbc:mysql://mysql.innova.local:3306/${DBName}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true' }
+            - { Name: SPRING_DATASOURCE_USERNAME, Value: !Ref DBUser }
+            - { Name: SPRING_DATASOURCE_PASSWORD, Value: !Ref DBPassword }
+            - { Name: SPRING_JPA_HIBERNATE_DDL_AUTO, Value: update }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupDespachos
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: despachos
+
+  TaskDefFront:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: innova-front
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      TaskRoleArn: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+      ContainerDefinitions:
+        - Name: front
+          Image: !Ref ImageFront
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupFront
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: front
+
+  # ===================== SERVICES =====================
+  ServiceMySQL:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: innova-mysql
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref TaskDefMySQL
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+      ServiceRegistries:
+        - RegistryArn: !GetAtt MySQLDiscovery.Arn
+
+  ServiceVentas:
+    Type: AWS::ECS::Service
+    DependsOn: [ListenerRuleVentas, ServiceMySQL]
+    Properties:
+      ServiceName: innova-ventas
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefVentas
+      HealthCheckGracePeriodSeconds: 120
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+      LoadBalancers:
+        - ContainerName: ventas
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroupVentas
+
+  ServiceDespachos:
+    Type: AWS::ECS::Service
+    DependsOn: [ListenerRuleDespachos, ServiceMySQL]
+    Properties:
+      ServiceName: innova-despachos
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefDespachos
+      HealthCheckGracePeriodSeconds: 120
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+      LoadBalancers:
+        - ContainerName: despachos
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroupDespachos
+
+  ServiceFront:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: innova-front
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefFront
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref PublicSubnetA, !Ref PublicSubnetB]
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+      LoadBalancers:
+        - ContainerName: front
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroupFront
+
+  # ===================== AUTOSCALING (Target Tracking CPU 50%) =====================
+  ScalableTargetVentas:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ServiceNamespace: ecs
+      ResourceId: !Sub 'service/${Cluster}/${ServiceVentas.Name}'
+      ScalableDimension: ecs:service:DesiredCount
+      MinCapacity: 1
+      MaxCapacity: 4
+      RoleARN: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+
+  ScalingPolicyVentas:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: cpu50-ventas
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTargetVentas
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+  ScalableTargetDespachos:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ServiceNamespace: ecs
+      ResourceId: !Sub 'service/${Cluster}/${ServiceDespachos.Name}'
+      ScalableDimension: ecs:service:DesiredCount
+      MinCapacity: 1
+      MaxCapacity: 4
+      RoleARN: !If [UseDefaultLabRole, !Sub 'arn:aws:iam::${AWS::AccountId}:role/LabRole', !Ref LabRoleArn]
+
+  ScalingPolicyDespachos:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: cpu50-despachos
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTargetDespachos
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 50.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+# ---------------------------------------------------------------------------
+# OUTPUTS
+# ---------------------------------------------------------------------------
+Outputs:
+  AppUrl:
+    Description: URL publica del Frontend (a traves del ALB)
+    Value: !Sub 'http://${LoadBalancer.DNSName}'
+  VentasApi:
+    Description: Endpoint API Ventas
+    Value: !Sub 'http://${LoadBalancer.DNSName}/api-ventas/v3/api-docs'
+  DespachosApi:
+    Description: Endpoint API Despachos
+    Value: !Sub 'http://${LoadBalancer.DNSName}/api-despachos/v3/api-docs'
+  ClusterName:
+    Value: !Ref Cluster

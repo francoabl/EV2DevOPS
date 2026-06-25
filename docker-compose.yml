@@ -1,0 +1,74 @@
+# Replica LOCAL de la arquitectura de ECS para probar Front + Back antes de AWS.
+#   gateway (nginx) = rol del ALB (routing por path)
+#   front  = SPA estatico (misma imagen que va a ECS)
+#   back-ventas / back-despachos = Spring Boot
+#   mysql  = base de datos (rol de mysql.innova.local en ECS)
+#
+# Uso:
+#   docker compose up --build
+#   Abrir:  http://localhost:8080
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: innova_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "1234"
+      MYSQL_DATABASE: despachos_db
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [innova_net]
+
+  back-ventas:
+    build:
+      context: ./back-Ventas_SpringBoot/Springboot-API-REST
+    container_name: innova_ventas
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/despachos_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "1234"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [innova_net]
+
+  back-despachos:
+    build:
+      context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+    container_name: innova_despachos
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/despachos_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "1234"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [innova_net]
+
+  front:
+    build:
+      context: ./front_despacho
+    container_name: innova_front
+    networks: [innova_net]
+
+  gateway:
+    image: nginx:alpine
+    container_name: innova_gateway
+    ports:
+      - "8080:80"            # abrir http://localhost:8080
+    volumes:
+      - ./local/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - front
+      - back-ventas
+      - back-despachos
+    networks: [innova_net]
+
+networks:
+  innova_net:
+    driver: bridge
