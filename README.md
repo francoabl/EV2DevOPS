@@ -1,5 +1,7 @@
 # Proyecto DevOps — Innovatech Chile (EP3)
-#https://francoabl.github.io/EV2DevOPS/presentacion/presentacion.html
+https://francoabl.github.io/EV2DevOPS/presentacion/presentacion.html
+
+
 Aplicación de gestión de **Ventas** y **Despachos** orquestada en **AWS EKS (Kubernetes)**,
 con pipeline **CI/CD (GitHub Actions)** que despliega vía `kubectl` y autoscaling con **HPA**.
 
