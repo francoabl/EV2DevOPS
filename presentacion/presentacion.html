@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Orquestación en AWS EKS · Innovatech · EP3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#232F3E;        /* AWS Squid Ink */
+    --navy-2:#1B2230;
+    --navy-3:#141A24;
+    --orange:#FF9900;      /* AWS Smile orange */
+    --orange-2:#EC7211;
+    --teal:#16A99B;
+    --ink:#16191F;
+    --muted:#5B6675;
+    --line:#E4E8EE;
+    --bg:#F5F7FA;
+    --card:#FFFFFF;
+    --ok:#1E9E6A;
+    --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--font);
+    background:#0c1119;
+    color:var(--ink);
+    overflow:hidden;
+  }
+  /* ---------- STAGE ---------- */
+  .deck{position:fixed;inset:0;}
+  .slide{
+    position:absolute;inset:0;
+    display:none;
+    flex-direction:column;
+    padding:64px 80px 84px;
+    background:var(--bg);
+    animation:fade .45s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  /* ---------- TOPBAR ---------- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+  .kicker{display:flex;align-items:center;gap:12px;font-weight:700;font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .kicker .dot{width:10px;height:10px;border-radius:50%;background:var(--orange)}
+  .brandtag{font-size:13px;font-weight:700;color:var(--navy);letter-spacing:.04em}
+  .brandtag b{color:var(--orange)}
+
+  h1.title{font-size:46px;font-weight:800;letter-spacing:-.02em;line-height:1.05;color:var(--navy)}
+  h1.title .bar{display:block;width:64px;height:6px;border-radius:6px;background:var(--orange);margin-top:18px}
+
+  /* ---------- CONTENT GRID ---------- */
+  .body{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;min-height:0}
+  .body.solo{grid-template-columns:1fr}
+  .lead{font-size:19px;color:var(--muted);font-weight:500;margin:14px 0 26px;max-width:46ch;line-height:1.5}
+
+  ul.points{list-style:none;display:flex;flex-direction:column;gap:18px}
+  ul.points li{display:flex;gap:16px;align-items:flex-start;font-size:19px;font-weight:500;color:var(--ink);line-height:1.4}
+  ul.points li .ic{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(255,153,0,.13);color:var(--orange-2);font-size:19px;font-weight:800}
+  ul.points li b{font-weight:800;color:var(--navy)}
+  ul.points li small{display:block;font-size:14.5px;color:var(--muted);font-weight:500;margin-top:2px}
+
+  /* ---------- IMAGE CARD (browser/terminal frame) ---------- */
+  .shot{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px -28px rgba(20,30,50,.5);overflow:hidden}
+  .shot .bar{display:flex;align-items:center;gap:7px;padding:11px 15px;background:var(--navy);}
+  .shot .bar i{width:11px;height:11px;border-radius:50%;display:block}
+  .shot .bar i:nth-child(1){background:#ff5f57}.shot .bar i:nth-child(2){background:#febc2e}.shot .bar i:nth-child(3){background:#28c840}
+  .shot .bar span{margin-left:10px;color:#9fb0c4;font-size:12.5px;font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .shot img{display:block;width:100%;height:auto;max-height:54vh;object-fit:contain;background:#0b0f17}
+  .cap{margin-top:13px;font-size:14px;color:var(--muted);font-weight:500;text-align:center}
+  .stack{display:flex;flex-direction:column;gap:16px}
+  .stack .shot img{max-height:24vh}
+
+  /* ---------- TITLE SLIDE ---------- */
+  .cover{background:radial-gradient(1200px 700px at 78% -10%,rgba(255,153,0,.22),transparent 55%),linear-gradient(160deg,#232F3E 0%,#1A2230 55%,#11161F 100%);color:#fff;justify-content:center;padding:0 96px}
+  .cover .eyebrow{display:inline-flex;align-items:center;gap:12px;font-size:14px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--orange);margin-bottom:26px}
+  .cover .eyebrow .ln{width:46px;height:2px;background:var(--orange)}
+  .cover h1{font-size:74px;font-weight:900;letter-spacing:-.03em;line-height:1.0;max-width:16ch}
+  .cover h1 em{font-style:normal;color:var(--orange)}
+  .cover p.sub{margin-top:24px;font-size:22px;color:#c7d2e0;font-weight:500;max-width:44ch;line-height:1.45}
+  .team{margin-top:46px;display:flex;gap:14px;flex-wrap:wrap}
+  .chip{display:flex;align-items:center;gap:10px;padding:11px 18px 11px 12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);border-radius:50px;font-weight:600;font-size:15.5px;color:#eaf0f7;backdrop-filter:blur(4px)}
+  .chip .av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--orange-2));display:grid;place-items:center;color:#241a08;font-weight:900;font-size:13px}
+  .cover .foot{position:absolute;bottom:44px;left:96px;right:96px;display:flex;justify-content:space-between;align-items:center;color:#8595a8;font-size:14px;font-weight:600}
+  .cover .foot b{color:#fff}
+
+  /* ---------- ARCHITECTURE DIAGRAM ---------- */
+  .archwrap{display:flex;justify-content:center;align-items:center;width:100%;height:100%}
+  .archwrap svg{width:100%;max-width:860px;height:auto;max-height:62vh}
+  .arch{display:flex;flex-direction:column;gap:0;width:100%}
+  .archrow{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap}
+  .node{border-radius:14px;padding:16px 20px;font-weight:700;font-size:16px;text-align:center;min-width:140px;border:1.5px solid var(--line);background:#fff;box-shadow:0 10px 24px -16px rgba(20,30,50,.4)}
+  .node small{display:block;font-weight:600;font-size:12.5px;color:var(--muted);margin-top:3px}
+  .node.cloud{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .node.lb{background:linear-gradient(135deg,#FFB84D,#FF9900);color:#241a08;border-color:#FF9900}
+  .node.svc{background:#fff}
+  .node.db{background:#EAF6F4;border-color:#9ad8d0;color:#0d6b62}
+  .node .tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--orange-2);text-transform:uppercase}
+  .arrow{color:var(--orange);font-size:26px;font-weight:900;line-height:1}
+  .archcluster{margin-top:14px;border:2px dashed #c2ccd8;border-radius:18px;padding:22px 20px 18px;position:relative;background:rgba(255,255,255,.5)}
+  .archcluster .lbl{position:absolute;top:-13px;left:24px;background:var(--bg);padding:0 12px;font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--navy)}
+  .vsep{height:22px;width:2px;background:var(--orange);margin:0 auto}
+
+  /* ---------- STAT CARDS ---------- */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:6px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;text-align:center;box-shadow:0 14px 30px -22px rgba(20,30,50,.5)}
+  .stat .n{font-size:38px;font-weight:900;color:var(--navy);letter-spacing:-.02em;line-height:1}
+  .stat .n em{font-style:normal;color:var(--orange)}
+  .stat .l{margin-top:8px;font-size:13.5px;font-weight:600;color:var(--muted)}
+
+  /* ---------- PROBLEM CARDS ---------- */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .pcard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 16px 34px -24px rgba(20,30,50,.5);display:flex;flex-direction:column;gap:12px}
+  .pcard .h{font-weight:800;color:var(--navy);font-size:17px;display:flex;align-items:center;gap:10px}
+  .pcard .h .e{width:34px;height:34px;border-radius:9px;background:rgba(255,153,0,.13);display:grid;place-items:center;font-size:17px}
+  .pcard .pb{font-size:14.5px;color:#b23b3b;font-weight:600}
+  .pcard .sol{font-size:15px;color:var(--ink);font-weight:500;line-height:1.45;padding-top:10px;border-top:1px solid var(--line)}
+  .pcard .sol b{color:var(--ok);font-weight:800}
+
+  /* ---------- closing ---------- */
+  .end{background:radial-gradient(1100px 700px at 20% 110%,rgba(255,153,0,.2),transparent 55%),linear-gradient(160deg,#232F3E,#11161F);color:#fff;justify-content:center;align-items:flex-start;padding:0 96px}
+  .end h1{font-size:64px;font-weight:900;letter-spacing:-.03em}
+  .end h1 em{font-style:normal;color:var(--orange)}
+  .end p{margin-top:18px;font-size:20px;color:#c7d2e0;max-width:40ch;line-height:1.5}
+
+  /* ---------- NAV / CHROME ---------- */
+  .progress{position:fixed;top:0;left:0;height:4px;background:var(--orange);z-index:40;transition:width .4s ease}
+  .nav{position:fixed;bottom:22px;right:28px;display:flex;align-items:center;gap:10px;z-index:40}
+  .nav button{width:42px;height:42px;border-radius:11px;border:1px solid var(--line);background:#fff;color:var(--navy);font-size:18px;cursor:pointer;display:grid;place-items:center;box-shadow:0 8px 20px -10px rgba(20,30,50,.4);transition:.15s}
+  .nav button:hover{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .counter{position:fixed;bottom:30px;left:28px;z-index:40;font-size:13px;font-weight:700;color:var(--muted)}
+  .counter b{color:var(--navy)}
+  .dots{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:40}
+  .dots i{width:8px;height:8px;border-radius:50%;background:#cdd5df;cursor:pointer;transition:.2s}
+  .dots i.on{background:var(--orange);width:22px;border-radius:5px}
+  /* on dark slides keep counter readable */
+  .slide.cover ~ *{}
+  .awslogo{display:inline-flex;align-items:baseline;font-weight:900;letter-spacing:-.02em}
+  .awslogo b{color:#fff}.awslogo span{color:var(--orange)}
+  .hint{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);font-size:12px;color:#7f8 b}
+  @media (max-width:1100px){
+    .slide{padding:40px 44px 76px}.body{grid-template-columns:1fr;gap:24px}
+    .cover h1{font-size:48px}.cover{padding:0 44px}
+  }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 · COVER -->
+  <section class="slide cover active">
+    <div class="eyebrow"><span class="ln"></span>Evaluación Parcial N°3 · DevOps</div>
+    <h1>Orquestación en <em>AWS EKS</em></h1>
+    <p class="sub">Despliegue, automatización y escalado de la aplicación de Innovatech sobre Kubernetes.</p>
+    <div class="team">
+      <div class="chip"><span class="av">FA</span> Franco Alarcón</div>
+      <div class="chip"><span class="av">CN</span> Cristóbal Núñez</div>
+      <div class="chip"><span class="av">MG</span> Máximo García</div>
+    </div>
+    <div class="foot">
+      <span>Innovatech Chile · Introducción a Herramientas DevOps</span>
+      <span class="awslogo"><b>Amazon</b>&nbsp;<span>EKS</span></span>
+    </div>
+  </section>
+
+  <!-- 2 · CONTEXTO -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Contexto</div><div class="brandtag"><b>AWS</b> · Innovatech</div></div>
+    <h1 class="title">Del contenedor a la orquestación<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <p class="lead">Tras contenerizar la aplicación (EP2), el objetivo de EP3 es llevarla a un entorno orquestado, escalable y automatizable en producción.</p>
+        <ul class="points">
+          <li><span class="ic">📦</span><div><b>Aplicación</b> de gestión de Ventas y Despachos<small>2 backends Spring Boot + frontend React</small></div></li>
+          <li><span class="ic">☸️</span><div><b>Orquestar en Amazon EKS</b><small>escalable, tolerante a fallos y automatizable</small></div></li>
+          <li><span class="ic">⚙️</span><div><b>Automatizar el despliegue</b><small>CI/CD continuo desde GitHub</small></div></li>
+        </ul>
+      </div>
+      <div class="shot">
+        <div class="bar"><i></i><i></i><i></i><span>innovatech — dashboard</span></div>
+        <img src="img/demo.gif" alt="App funcionando" />
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · ARQUITECTURA -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Arquitectura final</div><div class="brandtag"><b>Amazon</b> EKS</div></div>
+    <h1 class="title">Arquitectura en Kubernetes<span class="bar"></span></h1>
+    <div class="body solo">
+      <div class="archwrap">
+        <svg viewBox="0 0 940 486" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama de arquitectura">
+          <defs>
+            <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#FF9900"/>
+            </marker>
+            <marker id="art" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="#16A99B"/>
+            </marker>
+          </defs>
+          <!-- cluster boundary -->
+          <rect x="58" y="170" width="824" height="302" rx="20" fill="#ffffff" fill-opacity=".55" stroke="#c2ccd8" stroke-width="2" stroke-dasharray="7 6"/>
+          <text x="84" y="162" font-family="Inter,sans-serif" font-size="13" font-weight="800" letter-spacing="1.5" fill="#232F3E">CLÚSTER EKS · NAMESPACE INNOVA</text>
+
+          <!-- connectors -->
+          <line x1="470" y1="62"  x2="470" y2="84"  stroke="#FF9900" stroke-width="3" marker-end="url(#ar)"/>
+          <line x1="470" y1="140" x2="470" y2="178" stroke="#FF9900" stroke-width="3" marker-end="url(#ar)"/>
+          <path d="M470,236 C470,268 300,256 280,286" fill="none" stroke="#FF9900" stroke-width="3" marker-end="url(#ar)"/>
+          <path d="M470,236 C470,268 660,256 680,286" fill="none" stroke="#FF9900" stroke-width="3" marker-end="url(#ar)"/>
+          <path d="M280,352 C300,392 440,388 452,402" fill="none" stroke="#16A99B" stroke-width="3" marker-end="url(#art)"/>
+          <path d="M680,352 C660,392 520,388 508,402" fill="none" stroke="#16A99B" stroke-width="3" marker-end="url(#art)"/>
+
+          <!-- path labels -->
+          <text x="322" y="250" font-family="Inter,sans-serif" font-size="13" font-weight="700" fill="#5B6675" text-anchor="middle" stroke="#F5F7FA" stroke-width="4" paint-order="stroke">/api-ventas</text>
+          <text x="620" y="250" font-family="Inter,sans-serif" font-size="13" font-weight="700" fill="#5B6675" text-anchor="middle" stroke="#F5F7FA" stroke-width="4" paint-order="stroke">/api-despachos</text>
+
+          <!-- Internet -->
+          <g font-family="Inter,sans-serif">
+            <rect x="368" y="14" width="204" height="48" rx="12" fill="#232F3E"/>
+            <text x="470" y="43" font-size="17" font-weight="800" fill="#fff" text-anchor="middle">Internet · Usuarios</text>
+          </g>
+          <!-- ELB -->
+          <g font-family="Inter,sans-serif">
+            <rect x="320" y="84" width="300" height="56" rx="12" fill="#FF9900" stroke="#EC7211" stroke-width="1.5"/>
+            <text x="470" y="108" font-size="17" font-weight="800" fill="#241a08" text-anchor="middle">ELB público</text>
+            <text x="470" y="128" font-size="12" font-weight="600" fill="#5a3d04" text-anchor="middle">Service LoadBalancer · puerto 80</text>
+          </g>
+          <!-- Frontend -->
+          <g font-family="Inter,sans-serif">
+            <rect x="356" y="180" width="228" height="56" rx="12" fill="#fff" stroke="#cfd8e3" stroke-width="1.6"/>
+            <text x="470" y="206" font-size="16.5" font-weight="800" fill="#232F3E" text-anchor="middle">Frontend · nginx</text>
+            <text x="470" y="225" font-size="12" font-weight="600" fill="#5B6675" text-anchor="middle">React SPA + routing por path</text>
+          </g>
+          <!-- Ventas -->
+          <g font-family="Inter,sans-serif">
+            <rect x="158" y="288" width="244" height="64" rx="12" fill="#fff" stroke="#cfd8e3" stroke-width="1.6"/>
+            <text x="280" y="316" font-size="16.5" font-weight="800" fill="#232F3E" text-anchor="middle">Backend Ventas</text>
+            <text x="280" y="335" font-size="12" font-weight="600" fill="#5B6675" text-anchor="middle">Spring Boot · :8080</text>
+          </g>
+          <!-- Despachos -->
+          <g font-family="Inter,sans-serif">
+            <rect x="558" y="288" width="244" height="64" rx="12" fill="#fff" stroke="#cfd8e3" stroke-width="1.6"/>
+            <text x="680" y="316" font-size="16.5" font-weight="800" fill="#232F3E" text-anchor="middle">Backend Despachos</text>
+            <text x="680" y="335" font-size="12" font-weight="600" fill="#5B6675" text-anchor="middle">Spring Boot · :8080</text>
+          </g>
+          <!-- MySQL -->
+          <g font-family="Inter,sans-serif">
+            <rect x="362" y="404" width="216" height="58" rx="12" fill="#EAF6F4" stroke="#9ad8d0" stroke-width="1.6"/>
+            <text x="470" y="430" font-size="16.5" font-weight="800" fill="#0d6b62" text-anchor="middle">MySQL</text>
+            <text x="470" y="449" font-size="12" font-weight="600" fill="#3a8c84" text-anchor="middle">Service · DNS interno K8s</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · CLUSTER -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Infraestructura</div><div class="brandtag"><b>eksctl</b> · LabRole</div></div>
+    <h1 class="title">Creación del clúster EKS<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <ul class="points">
+          <li><span class="ic">🛠️</span><div><b>eksctl + LabRole</b><small>sin crear roles IAM (AWS Academy)</small></div></li>
+          <li><span class="ic">🖧</span><div><b>2 nodos t3.medium</b><small>multi-AZ, Kubernetes 1.32</small></div></li>
+          <li><span class="ic">📊</span><div><b>metrics-server</b><small>habilita las métricas para el autoscaling</small></div></li>
+        </ul>
+      </div>
+      <div class="stack">
+        <div class="shot"><div class="bar"><i></i><i></i><i></i><span>eksctl create cluster</span></div><img src="img/cluster-create.png" alt="eksctl create cluster"/></div>
+        <div class="shot"><div class="bar"><i></i><i></i><i></i><span>kubectl get nodes</span></div><img src="img/nodes.png" alt="nodos Ready"/></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · DESPLIEGUE -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Despliegue</div><div class="brandtag"><b>ECR</b> · Secrets</div></div>
+    <h1 class="title">Servicios en el clúster<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <p class="lead">Cada componente corre como un Deployment, con su imagen versionada y sus credenciales protegidas.</p>
+        <ul class="points">
+          <li><span class="ic">🐳</span><div><b>Imágenes desde Amazon ECR</b><small>front, ventas y despachos</small></div></li>
+          <li><span class="ic">🔐</span><div><b>Kubernetes Secret</b><small>credenciales de la base de datos, fuera del código</small></div></li>
+          <li><span class="ic">🌱</span><div><b>Seeder automático</b><small>carga los datos iniciales en una BD nueva</small></div></li>
+        </ul>
+      </div>
+      <div class="shot"><div class="bar"><i></i><i></i><i></i><span>kubectl get pods -n innova</span></div><img src="img/pods.png" alt="pods running"/></div>
+    </div>
+  </section>
+
+  <!-- 6 · REDES -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Redes y balanceo</div><div class="brandtag"><b>ELB</b> · Routing</div></div>
+    <h1 class="title">Comunicación y balanceo<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <ul class="points">
+          <li><span class="ic">🌍</span><div><b>Service LoadBalancer</b><small>un ELB público expone el frontend</small></div></li>
+          <li><span class="ic">🧭</span><div><b>Routing por path en nginx</b><small>/api-ventas y /api-despachos a cada backend</small></div></li>
+          <li><span class="ic">🔗</span><div><b>DNS interno de Kubernetes</b><small>los servicios se encuentran por nombre, sin Cloud Map</small></div></li>
+        </ul>
+      </div>
+      <div class="arch">
+        <div class="archrow">
+          <div class="node lb">ELB · puerto 80</div>
+          <span class="arrow">→</span>
+          <div class="node svc">Frontend · nginx<small>enruta por path</small></div>
+        </div>
+        <div class="vsep"></div>
+        <div class="archrow">
+          <div class="node svc">/ <small>SPA estático</small></div>
+          <div class="node svc">/api-ventas <small>→ Backend Ventas</small></div>
+          <div class="node svc">/api-despachos <small>→ Backend Despachos</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · PIPELINE -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>CI/CD</div><div class="brandtag"><b>GitHub</b> Actions</div></div>
+    <h1 class="title">Pipeline build → push → deploy<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <p class="lead">Cada push a <b>main</b> construye, publica y despliega automáticamente con kubectl.</p>
+        <ul class="points">
+          <li><span class="ic">🏗️</span><div><b>Build &amp; push</b><small>3 imágenes a Amazon ECR</small></div></li>
+          <li><span class="ic">🚀</span><div><b>Deploy con kubectl</b><small>aplica los manifiestos al clúster EKS</small></div></li>
+          <li><span class="ic">✅</span><div><b>100% exitoso · ~4 min</b><small>todas las etapas en verde</small></div></li>
+        </ul>
+      </div>
+      <div class="shot"><div class="bar"><i></i><i></i><i></i><span>GitHub Actions · CI/CD EKS</span></div><img src="img/pipeline.png" alt="pipeline verde"/></div>
+    </div>
+  </section>
+
+  <!-- 8 · AUTOSCALING -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Autoscaling</div><div class="brandtag"><b>HPA</b> · CPU 50%</div></div>
+    <h1 class="title">Escalado automático con HPA<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <ul class="points">
+          <li><span class="ic">📈</span><div><b>Horizontal Pod Autoscaler</b><small>umbral objetivo: 50% de CPU</small></div></li>
+          <li><span class="ic">⚡</span><div><b>Bajo carga la CPU superó 200%</b><small>prueba con 250 conexiones concurrentes</small></div></li>
+          <li><span class="ic">🔼</span><div><b>Escaló 1 → 3 → 4 réplicas</b><small>despachos quedó en 1 (sin carga)</small></div></li>
+        </ul>
+      </div>
+      <div class="stack">
+        <div class="shot"><div class="bar"><i></i><i></i><i></i><span>kubectl get hpa -w</span></div><img src="img/hpa-scaleout.png" alt="HPA escalando"/></div>
+        <div class="shot"><div class="bar"><i></i><i></i><i></i><span>kubectl get pods · 4 réplicas</span></div><img src="img/pods.png" alt="4 pods ventas"/></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · METRICAS -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Resultados</div><div class="brandtag"><b>Prueba</b> de carga</div></div>
+    <h1 class="title">Métricas y desempeño<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <div class="stats">
+          <div class="stat"><div class="n"><em>260</em></div><div class="l">peticiones / segundo</div></div>
+          <div class="stat"><div class="n"><em>100%</em></div><div class="l">respuestas exitosas (200)</div></div>
+          <div class="stat"><div class="n"><em>1→4</em></div><div class="l">réplicas (scale-out)</div></div>
+        </div>
+        <ul class="points" style="margin-top:26px">
+          <li><span class="ic">📉</span><div><b>Scale-in automático</b><small>al cesar la carga, vuelve a 1 réplica</small></div></li>
+          <li><span class="ic">🩺</span><div><b>Logs y métricas con kubectl</b><small>top pods · logs · get hpa</small></div></li>
+        </ul>
+      </div>
+      <div class="shot"><div class="bar"><i></i><i></i><i></i><span>kubectl get hpa · scale-in</span></div><img src="img/hpa-scalein.png" alt="scale-in"/></div>
+    </div>
+  </section>
+
+  <!-- 10 · DEMO -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Validación funcional</div><div class="brandtag"><b>Front</b> → Back</div></div>
+    <h1 class="title">La aplicación en marcha<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <p class="lead">Comunicación Frontend → Backend → MySQL operativa de punta a punta sobre el clúster.</p>
+        <ul class="points">
+          <li><span class="ic">🛒</span><div><b>Órdenes de compra</b><small>listadas desde el backend de Ventas</small></div></li>
+          <li><span class="ic">🚚</span><div><b>Generación de despachos</b><small>persistidos en MySQL</small></div></li>
+          <li><span class="ic">🌐</span><div><b>Acceso por URL pública</b><small>a través del ELB</small></div></li>
+        </ul>
+      </div>
+      <div class="shot"><div class="bar"><i></i><i></i><i></i><span>app · innovatech (demo)</span></div><img src="img/demo.gif" alt="demo web"/></div>
+    </div>
+  </section>
+
+  <!-- 11 · PROBLEMAS -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Problemas y soluciones</div><div class="brandtag"><b>Learner</b> Lab</div></div>
+    <h1 class="title">Obstáculos que resolvimos<span class="bar"></span></h1>
+    <div class="body solo">
+      <div class="cards">
+        <div class="pcard">
+          <div class="h"><span class="e">🚫</span> Cloud Map bloqueado</div>
+          <div class="pb">Learner Lab no permite crear el DNS service discovery.</div>
+          <div class="sol"><b>Solución:</b> en EKS usamos el <b>DNS interno nativo</b> de Kubernetes (Service por nombre).</div>
+        </div>
+        <div class="pcard">
+          <div class="h"><span class="e">🔢</span> Versión de EKS</div>
+          <div class="pb">La 1.29 quedó sin soporte al crear el clúster.</div>
+          <div class="sol"><b>Solución:</b> actualizamos a <b>Kubernetes 1.32</b> en eksctl y el pipeline.</div>
+        </div>
+        <div class="pcard">
+          <div class="h"><span class="e">📊</span> metrics-server / HTTP</div>
+          <div class="pb">HPA sin métricas y acceso forzado a https.</div>
+          <div class="sol"><b>Solución:</b> reinstalamos metrics-server y publicamos por <b>http</b> en el ELB.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · CIERRE -->
+  <section class="slide end">
+    <div class="eyebrow" style="color:var(--orange);display:inline-flex;gap:12px;align-items:center;font-weight:800;letter-spacing:.18em;text-transform:uppercase;font-size:14px;margin-bottom:22px">Conclusión</div>
+    <h1>Aplicación <em>orquestada</em>,<br>escalable y automatizada.</h1>
+    <p>CI/CD funcional y autoscaling demostrado con evidencia sobre Amazon EKS. Innovatech, lista para crecer en producción.</p>
+    <div class="team" style="margin-top:40px">
+      <div class="chip"><span class="av">FA</span> Franco Alarcón</div>
+      <div class="chip"><span class="av">CN</span> Cristóbal Núñez</div>
+      <div class="chip"><span class="av">MG</span> Máximo García</div>
+    </div>
+    <div class="foot" style="position:absolute;bottom:44px;left:96px;right:96px;display:flex;justify-content:space-between;color:#8595a8;font-size:14px;font-weight:600">
+      <span>EP3 · Introducción a Herramientas DevOps</span>
+      <span class="awslogo"><b>¡Gracias!</b></span>
+    </div>
+  </section>
+
+</div>
+
+<!-- CHROME -->
+<div class="counter"><b id="cur">1</b> / <span id="tot">12</span></div>
+<div class="dots" id="dots"></div>
+<div class="nav">
+  <button id="prev" aria-label="anterior">‹</button>
+  <button id="next" aria-label="siguiente">›</button>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const tot=slides.length;
+  let i=0;
+  const cur=document.getElementById('cur'),
+        prog=document.getElementById('progress'),
+        dotsBox=document.getElementById('dots');
+  document.getElementById('tot').textContent=tot;
+  slides.forEach((_,k)=>{const d=document.createElement('i');d.onclick=()=>go(k);dotsBox.appendChild(d);});
+  const dots=[...dotsBox.children];
+  function render(){
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    cur.textContent=i+1;
+    prog.style.width=((i+1)/tot*100)+'%';
+    // chrome color on dark slides
+    const dark=slides[i].classList.contains('cover')||slides[i].classList.contains('end');
+    document.querySelector('.counter').style.color=dark?'#9fb0c4':'';
+  }
+  function go(n){i=Math.max(0,Math.min(tot-1,n));render();}
+  document.getElementById('next').onclick=()=>go(i+1);
+  document.getElementById('prev').onclick=()=>go(i-1);
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();go(i+1);}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();go(i-1);}
+    else if(e.key==='Home')go(0);
+    else if(e.key==='End')go(tot-1);
+    else if(e.key.toLowerCase()==='f'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}
+  });
+  render();
+</script>
+</body>
+</html>

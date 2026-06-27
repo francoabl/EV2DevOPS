@@ -1,8 +1,9 @@
 name: CI/CD Innovatech EKS
 
+# Disparo manual: el cluster EKS se crea/borra bajo demanda en el Learner Lab,
+# por eso el deploy se ejecuta a mano (Actions -> Run workflow) y NO en cada push
+# (evita runs fallidos al publicar docs o la presentacion).
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch: {}
 
 env:
@@ -65,7 +66,7 @@ jobs:
       - name: Instalar kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: v1.29.0
+          version: v1.32.0
 
       - name: Configurar kubeconfig de EKS
         env:
