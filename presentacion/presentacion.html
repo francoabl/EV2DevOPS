@@ -279,6 +279,30 @@
     </div>
   </section>
 
+  <!-- IAM Y REDES -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Clúster · seguridad y red</div><div class="brandtag"><b>IAM</b> · VPC</div></div>
+    <h1 class="title">Roles IAM y redes<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--orange-2);margin-bottom:16px">Roles IAM</div>
+        <ul class="points">
+          <li><span class="ic">🔑</span><div><b>LabRole reutilizado</b><small>AWS Academy no permite crear roles nuevos</small></div></li>
+          <li><span class="ic">🖧</span><div><b>Node role</b><small>los nodos usan LabRole para unirse al clúster y leer ECR</small></div></li>
+          <li><span class="ic">⚙️</span><div><b>Cluster service role</b><small>el control plane de EKS opera con LabRole</small></div></li>
+        </ul>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--orange-2);margin-bottom:16px">Redes</div>
+        <ul class="points">
+          <li><span class="ic">🌐</span><div><b>VPC dedicada</b><small>creada por eksctl para el clúster</small></div></li>
+          <li><span class="ic">🗺️</span><div><b>Subredes multi-AZ</b><small>nodos repartidos en 2 zonas de disponibilidad</small></div></li>
+          <li><span class="ic">🛡️</span><div><b>Security Groups</b><small>gestionados por EKS entre nodos, pods y el ELB</small></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <!-- 5 · DESPLIEGUE -->
   <section class="slide">
     <div class="topbar"><div class="kicker"><span class="dot"></span>Despliegue</div><div class="brandtag"><b>ECR</b> · Secrets</div></div>
@@ -380,6 +404,20 @@
     </div>
   </section>
 
+  <!-- RESILIENCIA -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Garantías del sistema</div><div class="brandtag"><b>Producción</b>-ready</div></div>
+    <h1 class="title">Por qué es resiliente<span class="bar"></span></h1>
+    <div class="body solo">
+      <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+        <div class="pcard"><div class="h"><span class="e">📈</span> Escalabilidad</div><div class="sol" style="border:0;padding:0">El <b>HPA</b> agrega o quita réplicas según la CPU, sin intervención.</div></div>
+        <div class="pcard"><div class="h"><span class="e">🟢</span> Alta disponibilidad</div><div class="sol" style="border:0;padding:0">Nodos en <b>2 zonas</b> y varias réplicas detrás del ELB.</div></div>
+        <div class="pcard"><div class="h"><span class="e">🔄</span> Tolerancia a fallos</div><div class="sol" style="border:0;padding:0">Kubernetes <b>reinicia los pods</b> caídos y hace rolling updates sin caída.</div></div>
+        <div class="pcard"><div class="h"><span class="e">⚙️</span> Automatización</div><div class="sol" style="border:0;padding:0">El CI/CD despliega solo y el clúster mantiene el <b>estado deseado</b>.</div></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 10 · DEMO -->
   <section class="slide">
     <div class="topbar"><div class="kicker"><span class="dot"></span>Validación funcional</div><div class="brandtag"><b>Front</b> → Back</div></div>
@@ -418,6 +456,30 @@
           <div class="pb">HPA sin métricas y acceso forzado a https.</div>
           <div class="sol"><b>Solución:</b> reinstalamos metrics-server y publicamos por <b>http</b> en el ELB.</div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LECCIONES Y PROYECCIÓN -->
+  <section class="slide">
+    <div class="topbar"><div class="kicker"><span class="dot"></span>Análisis crítico</div><div class="brandtag"><b>Cierre</b> técnico</div></div>
+    <h1 class="title">Lecciones y proyección<span class="bar"></span></h1>
+    <div class="body">
+      <div>
+        <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--orange-2);margin-bottom:16px">Lecciones aprendidas</div>
+        <ul class="points">
+          <li><span class="ic">💡</span><div><b>EKS en Learner Lab</b><small>exige reutilizar LabRole y ajustar la versión de Kubernetes</small></div></li>
+          <li><span class="ic">🔗</span><div><b>DNS interno de Kubernetes</b><small>simplifica la comunicación entre servicios sin Cloud Map</small></div></li>
+          <li><span class="ic">📊</span><div><b>metrics-server es clave</b><small>sin él el HPA no puede escalar</small></div></li>
+        </ul>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--orange-2);margin-bottom:16px">Proyección a producción</div>
+        <ul class="points">
+          <li><span class="ic">🗄️</span><div><b>Base de datos gestionada</b><small>migrar MySQL a Amazon RDS con persistencia</small></div></li>
+          <li><span class="ic">🔒</span><div><b>HTTPS</b><small>certificado con ACM + Ingress en el balanceador</small></div></li>
+          <li><span class="ic">📡</span><div><b>Observabilidad</b><small>CloudWatch o Prometheus con alarmas y dashboards</small></div></li>
+        </ul>
       </div>
     </div>
   </section>
