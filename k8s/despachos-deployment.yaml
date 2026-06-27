@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: back-despachos
+  labels:
+    app: back-despachos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: back-despachos
+  template:
+    metadata:
+      labels:
+        app: back-despachos
+    spec:
+      containers:
+        - name: despachos
+          image: 765529694569.dkr.ecr.us-east-1.amazonaws.com/innova/despachos:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://mysql:3306/despachos_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "root"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: "update"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /api-despachos/v3/api-docs
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10

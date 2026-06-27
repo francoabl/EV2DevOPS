@@ -1,0 +1,32 @@
+# Config de eksctl para crear el cluster EKS en AWS Academy Learner Lab.
+#
+# CLAVE: Learner Lab NO permite crear roles IAM. Por eso se reutiliza el rol
+# existente "LabRole" tanto para el cluster como para los nodos, y se desactiva
+# OIDC (que tambien intentaria crear IAM).
+#
+# Crear con:   eksctl create cluster -f eks/cluster-config.yaml
+#
+# IMPORTANTE: verifica que el numero de cuenta (765529694569) sea el tuyo:
+#   aws sts get-caller-identity --query Account --output text
+# Si es distinto, reemplazalo en los dos ARN de abajo.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: innova-eks
+  region: us-east-1
+  version: "1.29"
+
+iam:
+  withOIDC: false
+  serviceRoleARN: arn:aws:iam::765529694569:role/LabRole
+
+managedNodeGroups:
+  - name: ng-innova
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 3
+    volumeSize: 20
+    iam:
+      instanceRoleARN: arn:aws:iam::765529694569:role/LabRole
